@@ -2,7 +2,7 @@
 
 export type TipoComponente = 'microservicio' | 'database' | 'cache' | 'frontend';
 
-export type StackTecnologico = 
+export type StackTecnologico =
   | 'java' | 'quarkus' | 'node' | 'python' | 'go'
   | 'postgresql' | 'mysql' | 'oracle'
   | 'mongodb' | 'cassandra'
@@ -78,7 +78,7 @@ export function validarTopologia(req: ReqSizingTopologia): ReporteSizing {
   // ========================================================
   // LÓGICA DE DIMENSIONAMIENTO DE NODOS WORKER (REQUERIMIENTO NUEVO)
   // ========================================================
-  
+
   // Margen reservado para el Sistema Operativo + Kubelet + OpenShift Daemons (generalmente ~0.5 vCPU y 1.5Gi RAM por nodo)
   const overheadCPU = 0.5;
   const overheadRAM = 1.5;
@@ -105,14 +105,14 @@ export function validarTopologia(req: ReqSizingTopologia): ReporteSizing {
   // Cálculo de nodos bajo el principio de resiliencia N+1 (Mínimo 2 en Non-Prod, Mínimo 3 en Prod para quorum)
   const nodosPorCPU = Math.ceil(cpuTotalRequest / cpuUtilizablePorNodo);
   const nodosPorRAM = Math.ceil(ramTotalRequest / ramUtilizablePorNodo);
-  
+
   let cantidadNodosRecomendados = Math.max(nodosPorCPU, nodosPorRAM);
 
   // Forzar políticas de HA a nivel Clúster
   if (req.ambiente === 'prod') {
     // En producción garantizamos un clúster mínimo de 3 nodos para tolerar la pérdida de 1 Worker entero (N+1)
     if (cantidadNodosRecomendados < 2) {
-      cantidadNodosRecomendados = 3; 
+      cantidadNodosRecomendados = 3;
     } else {
       cantidadNodosRecomendados += 1; // Añadimos el nodo extra de tolerancia (+1)
     }
@@ -121,7 +121,7 @@ export function validarTopologia(req: ReqSizingTopologia): ReporteSizing {
     if (cantidadNodosRecomendados < 2) cantidadNodosRecomendados = 2;
   }
 
-  const explicacionHA = req.ambiente === 'prod' 
+  const explicacionHA = req.ambiente === 'prod'
     ? `Configuración resiliente (Estrategia N+1). Al usar ${cantidadNodosRecomendados} nodos, si uno falla catastróficamente, los ${cantidadNodosRecomendados - 1} restantes absorberán los ${cpuTotalRequest.toFixed(1)} Cores y ${ramTotalRequest.toFixed(1)} GiB de la app sin generar cortes de servicio.`
     : `Configuración para ambiente No Productivo. Se sugieren ${cantidadNodosRecomendados} nodos mínimos para permitir la distribución de Pods, sin redundancia estricta ante fallos de hardware.`;
 
