@@ -1,7 +1,14 @@
-// src/App.tsx (VERSION TRILATERAL - 3 COLUMNAS)
+// src/App.tsx
 import React, { useState, useMemo } from 'react';
 import { validarTopologia, type ComponenteSizing, type TipoComponente } from './sizingEngine';
 import { CreateMLCEngine, type InitProgressReport } from "@mlc-ai/web-llm"; 
+
+interface FilaAuditoria {
+  prioridad: 'URGENTE' | 'MEDIA' | 'BAJA';
+  componente: string;
+  riesgo: string;
+  recomendacion: string;
+}
 
 export default function App() {
   const [ambiente, setAmbiente] = useState<'prod' | 'non-prod'>('prod');
@@ -30,7 +37,7 @@ export default function App() {
   });
 
   const [contextoTexto, setContextoTexto] = useState('');
-  const [analisisLLM, setAnalisisLLM] = useState('');
+  const [analisisTabla, setAnalisisTabla] = useState<FilaAuditoria[]>([]);
   const [progresoCarga, setProgresoCarga] = useState('');
   const [cargandoLLM, setCargandoLLM] = useState(false);
 
@@ -81,10 +88,11 @@ export default function App() {
     setComponentes(prev => prev.filter(c => c.id !== id));
   };
 
+ // --- FUNCIÓN DE IA COMPLETA CON PARSEO Y AUTOREPARACIÓN DE JSON ---
   const ejecutarAnalisisIA = async () => {
     if (!contextoTexto.trim() || componentes.length === 0) return;
     setCargandoLLM(true);
-    setAnalisisLLM('');
+    setAnalisisTabla([]); // Limpiamos el estado previo
     
     try {
       const selectedModel = "Phi-3-mini-4k-instruct-q4f16_1-MLC"; 
@@ -106,36 +114,73 @@ export default function App() {
       }));
 
       const prompt = `<|system|>
-Actúa como un Líder de Arquitectura de Infraestructura OpenShift. Tu trabajo es auditar la coherencia entre el negocio y los componentes técnicos.
-REGLA DE FORMATO OBLIGATORIA: Debes estructurar tu respuesta EXACTAMENTE con este formato Markdown, clasificando tus hallazgos por prioridad (No uses introducciones ni saludos):
+Actúa como un Líder de Arquitectura de Infraestructura OpenShift Senior.
+REGLA DE FORMATO INNEGOCIABLE: Debes responder EXCLUSIVAMENTE con un arreglo de objetos JSON válido. No incluyas explicaciones, marcas de markdown (\`\`\`json), saludos ni conclusiones. Tu respuesta debe ser directamente parseable por un programa.
 
-### 🚨 PRIORIDAD: URGENTE (Bloqueos Críticos)
-* [Riesgos graves observados]
+Estructura requerida del JSON:
+[
+  {
+    "prioridad": "URGENTE", // Solo usar: "URGENTE", "MEDIA" o "BAJA"
+    "componente": "nombre_del_componente",
+    "riesgo": "descripción concisa del hallazgo técnico encontrado",
+    "recomendacion": "la acción técnica exacta a tomar en OpenShift"
+  }
+]
 
-### ⚠️ PRIORIDAD: MEDIA (Rendimiento/Costos)
-* [Recomendaciones medias]
-
-### 💡 PRIORIDAD: BAJA / WARNING (Buenas Prácticas)
-* [Consejos menores]
+Ordena el arreglo poniendo primero los elementos "URGENTE", luego "MEDIA" y finalmente "BAJA".
 <|user|>
 CONTEXTO DEL NEGOCIO: "${contextoTexto}"
-AMBIENTE: ${ambiente.toUpperCase()}
+AMBIENTE DE DESPLIEGUE: ${ambiente.toUpperCase()}
 TOPOLOGÍA:
 ${JSON.stringify(topologiaResumida, null, 2)}
 
-Genera la auditoría respetando el formato de prioridades solicitado.
+Genera el JSON de auditoría estructurado.
 <|assistant|>`;
       
       const respuesta = await engine.chat.completions.create({
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 350
+        temperature: 0.1, // Consistencia en formato
+        max_tokens: 500
       });
       
-      setAnalisisLLM(respuesta.choices[0].message.content || "Sin respuesta.");
+      const rawText = respuesta.choices[0].message.content || "[]";
+      console.log("Salida cruda de la GPU:", rawText);
+
+      // ========================================================
+      // PIPELINE DE AUTOREPARACIÓN DE JSON
+      // ========================================================
+      
+      // 1. Extraer estrictamente el bloque delimitado por corchetes [ ... ]
+      const inicioArreglo = rawText.indexOf('[');
+      const finArreglo = rawText.lastIndexOf(']');
+      
+      let jsonLimpio = "[]";
+      
+      if (inicioArreglo !== -1 && finArreglo !== -1) {
+        jsonLimpio = rawText.substring(inicioArreglo, finArreglo + 1);
+      } else {
+        jsonLimpio = rawText.replace(/```json|```/g, "").trim();
+      }
+
+      // 2. Eliminar comas huérfanas antes de cierres (Trailing Commas)
+      jsonLimpio = jsonLimpio
+        .replace(/,\s*}/g, "}")
+        .replace(/,\s*\]/g, "]");
+
+      // 3. Parsear de forma segura al estado de React
+      const objetoEstructurado = JSON.parse(jsonLimpio);
+      setAnalisisTabla(objetoEstructurado);
+      setProgresoCarga('Auditoría procesada con éxito.');
+
     } catch (error) {
-      console.error(error);
-      setAnalisisLLM(`Error en WebGPU: ${error}`);
+      console.error("Error crítico en parseo:", error);
+      setAnalisisTabla([{
+        prioridad: 'URGENTE',
+        componente: 'Motor de IA (Sanitizer)',
+        riesgo: `Error de sintaxis en el JSON generado localmente. Detalle: ${error}`,
+        recomendacion: 'Intenta ejecutar la auditoría nuevamente agregando más contexto para guiar la generación del modelo.'
+      }]);
+      setProgresoCarga('');
     } finally {
       setCargandoLLM(false);
     }
@@ -148,10 +193,9 @@ Genera la auditoría respetando el formato de prioridades solicitado.
         <p className="text-slate-400 mt-1">Plataforma de Diseño y Dimensionamiento de Topologías Corporativas</p>
       </header>
 
-      {/* RE-DISEÑO DE LA GRILLA: 3 Columnas en pantallas extra grandes (xl) */}
       <main className="max-w-[1800px] mx-auto grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
         
-        {/* ================= COLUMNA 1: PARAMETRIZACIÓN ================= */}
+        {/* COLUMNA 1: PARAMETRIZACIÓN */}
         <div className="space-y-6">
           <section className="bg-slate-800 p-6 rounded-xl shadow-xl border border-slate-700">
             <h2 className="text-xl font-bold mb-4 text-white">1. Definir Ambiente Global</h2>
@@ -263,7 +307,7 @@ Genera la auditoría respetando el formato de prioridades solicitado.
           </section>
         </div>
 
-        {/* ================= COLUMNA 2: MONITOR DE TOPOLOGÍA Y REGLAS ================= */}
+        {/* COLUMNA 2: MONITOR DE TOPOLOGÍA Y REGLAS */}
         <div className="space-y-6">
           <div className={`p-4 rounded-xl border flex items-center justify-between ${reporte.estaAprobado ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-400' : 'bg-rose-950/40 border-rose-500/50 text-rose-400'}`}>
             <div>
@@ -334,7 +378,7 @@ Genera la auditoría respetando el formato de prioridades solicitado.
           </div>
         </div>
 
-        {/* ================= COLUMNA 3: RECOMENDACIÓN DE INFRAESTRUCTURA E IA ================= */}
+        {/* COLUMNA 3: RECOMENDACIÓN DE INFRAESTRUCTURA E IA */}
         <div className="space-y-6">
           {componentes.length > 0 && (
             <section className="bg-slate-800 p-5 rounded-xl border border-blue-500/20 shadow-xl">
@@ -362,12 +406,52 @@ Genera la auditoría respetando el formato de prioridades solicitado.
             {progresoCarga && <p className="text-[11px] text-slate-400 mt-2 italic text-center">{progresoCarga}</p>}
           </section>
 
-          {/* LA IA SE COLOCA DIRECTAMENTE COMO EL PIE DE LA TERCERA COLUMNA */}
-          {analisisLLM && (
-            <div className="bg-gradient-to-br from-indigo-950/40 to-slate-800 p-5 rounded-xl border border-indigo-500/30 shadow-2xl">
-              <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-3">🤖 Reporte de Prioridades (GPU-Accelerated)</h3>
-              <div className="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-4 rounded-lg border border-slate-700/50 whitespace-pre-wrap font-sans">
-                {analisisLLM}
+          {/* COMPONENTE NATIVO ASOCIADO AL PARSEO JSON DEL LLM */}
+          {analisisTabla.length > 0 && (
+            <div className="bg-gradient-to-br from-indigo-950/40 to-slate-800 p-5 rounded-xl border border-indigo-500/30 shadow-2xl overflow-hidden">
+              <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-3">
+                🤖 Reporte Ejecutivo Estructurado (Componente React Nativo)
+              </h3>
+              
+              <div className="overflow-x-auto rounded-lg border border-slate-700/60 bg-slate-900/60">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-700 bg-slate-900/80 text-indigo-300 font-bold">
+                      <th className="p-3">Prioridad</th>
+                      <th className="p-3">Componente</th>
+                      <th className="p-3">Riesgo / Hallazgo</th>
+                      <th className="p-3">Recomendación</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analisisTabla.map((fila, index) => {
+                      const badgeStyle = {
+                        URGENTE: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+                        MEDIA: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+                        BAJA: 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                      }[fila.prioridad] || 'bg-slate-500/10 text-slate-400';
+
+                      return (
+                        <tr key={index} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                          <td className="p-3 whitespace-nowrap align-top">
+                            <span className={`px-2 py-0.5 rounded border font-mono font-extrabold text-[10px] ${badgeStyle}`}>
+                              {fila.prioridad}
+                            </span>
+                          </td>
+                          <td className="p-3 font-semibold text-blue-400 align-top whitespace-nowrap">
+                            {fila.componente}
+                          </td>
+                          <td className="p-3 text-slate-300 align-top leading-relaxed min-w-[150px]">
+                            {fila.riesgo}
+                          </td>
+                          <td className="p-3 text-slate-400 align-top leading-relaxed min-w-[180px]">
+                            {fila.recomendacion}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
